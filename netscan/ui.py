@@ -87,7 +87,14 @@ class Window(QMainWindow):
         scan.addWidget(self.table, 1)
         self.empty = QLabel('Список пуст. Добавьте подсети и начните поиск.'); self.empty.setObjectName('muted'); scan.addWidget(self.empty)
         sharing = QHBoxLayout()
-        self.share = self.button('Профили для Throne', self.copy_links)
+        self.share = QPushButton('Экспорт в VPN-клиент ▾')
+        client_menu = QMenu(self.share)
+        client_menu.addAction('Throne — скопировать профили', lambda: self.copy_links(native=True))
+        client_menu.addAction('Nekoray — скопировать HTTP-ссылки', lambda: self.copy_links(native=False))
+        client_menu.addSeparator()
+        client_menu.addAction('Throne — сохранить TXT', lambda: self.export_links(native=True))
+        client_menu.addAction('Nekoray — сохранить TXT', lambda: self.export_links(native=False))
+        self.share.setMenu(client_menu)
         self.share.setObjectName('primary'); sharing.addWidget(self.share)
         sharing.addWidget(self.button('Копировать адреса', self.copy_address))
         self.recheck = self.button('Перепроверить', self.retest); sharing.addWidget(self.recheck)
@@ -95,14 +102,13 @@ class Window(QMainWindow):
         export_button = QPushButton('Экспорт ▾')
         export_menu = QMenu(export_button)
         export_menu.addAction('Профили Throne в TXT', self.export_links)
-        export_menu.addAction('HTTP-ссылки для Nekoray', lambda: self.copy_links(native=False))
         export_menu.addAction('Таблица CSV', self.export)
         export_menu.addSeparator()
         self.clear_action = export_menu.addAction('Очистить результаты', self.clear_results)
         export_button.setMenu(export_menu); sharing.addWidget(export_button); scan.addLayout(sharing)
         share_options = QHBoxLayout()
         self.include_credentials = QCheckBox('С логином и паролем'); self.include_credentials.setChecked(True)
-        self.include_credentials.setToolTip('Используются текущие логин и пароль из «Параметров», включая сохранённые результаты. Профили Throne включают эти данные при включённой галочке. Base64 не скрывает пароль. Передавайте их только нужному приложению.')
+        self.include_credentials.setToolTip('Используются текущие логин и пароль из «Параметров», включая сохранённые результаты. Оба формата включают эти данные при включённой галочке. Base64 не скрывает пароль. Передавайте их только нужному приложению.')
         share_options.addWidget(self.include_credentials)
         self.share_hint = QLabel('Выделите строки или скопируйте все рабочие. В клиенте — Ctrl+V.')
         self.share_hint.setObjectName('muted'); self.share_hint.setWordWrap(True)
@@ -379,10 +385,10 @@ class Window(QMainWindow):
             QApplication.clipboard().setText(links)
             self.state.setText('Профили скопированы • вставьте в Throne через Ctrl+V' if native else 'HTTP-ссылки скопированы • вставьте в Nekoray')
 
-    def export_links(self):
-        links = self.links_text()
+    def export_links(self, checked=False, native=True):
+        links = self.links_text(native=native)
         if not links: return
-        name, _ = QFileDialog.getSaveFileName(self, 'Профили Throne', 'netscan-throne.txt', 'Текст (*.txt)')
+        name, _ = QFileDialog.getSaveFileName(self, 'Профили Throne' if native else 'HTTP-ссылки Nekoray', 'netscan-throne.txt' if native else 'netscan-nekoray.txt', 'Текст (*.txt)')
         if not name: return
         try:
             write_links(name, links)

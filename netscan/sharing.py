@@ -15,10 +15,9 @@ def make_links(results: list[Result], username: str = '', password: str = '') ->
         if not 1 <= int(port) <= 65535:
             raise ValueError('Некорректный порт прокси.')
         auth = ''
-        if result.auth == 'Принята' and username:
+        if username:
             auth = quote(username, safe='') + ':' + quote(password, safe='') + '@'
-        name = quote('NetScan ' + result.address, safe='')
-        links.append(f'http://{auth}{host}:{port}#{name}')
+        links.append(f'http://{auth}{host}:{port}')
         seen.add(result.address)
     return '\n'.join(links)
 

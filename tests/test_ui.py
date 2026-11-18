@@ -173,3 +173,15 @@ def test_bad_result_link_reports_status(window, monkeypatch):
     window.copy_links()
     assert APP.clipboard().text() == 'unchanged'
     assert 'Перепроверьте' in window.state.text()
+
+
+def test_client_export_menu(window):
+    add_working(window,'192.0.2.4:3128')
+    window.username.setText('test-user');window.password.setText('test-password')
+    actions=window.share.menu().actions()
+    actions[0].trigger()
+    assert APP.clipboard().text().startswith('throne://add/')
+    actions[1].trigger()
+    assert APP.clipboard().text()=='http://test-user:test-password@192.0.2.4:3128'
+    window.include_credentials.setChecked(False);actions[1].trigger()
+    assert APP.clipboard().text()=='http://192.0.2.4:3128'
