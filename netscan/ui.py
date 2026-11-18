@@ -6,7 +6,7 @@ import sys
 from dataclasses import asdict
 from pathlib import Path
 from PySide6.QtCore import Qt, QSettings, QThread, Signal, QTimer, QRegularExpression
-from PySide6.QtGui import QColor, QIcon, QPixmap, QRegularExpressionValidator, QPalette
+from PySide6.QtGui import QColor, QIcon, QRegularExpressionValidator, QPalette
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel, QPushButton,
     QLineEdit, QListWidget, QAbstractItemView, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QHBoxLayout, QFormLayout, QSpinBox, QDoubleSpinBox, QSplitter,
@@ -52,12 +52,7 @@ class Window(QMainWindow):
         shell = QHBoxLayout(root); shell.setContentsMargins(0, 0, 0, 0); shell.setSpacing(0)
         sidebar = QFrame(); sidebar.setObjectName('sidebar'); sidebar.setFixedWidth(200)
         side = QVBoxLayout(sidebar); side.setContentsMargins(16, 24, 16, 18); side.setSpacing(16)
-        brand_row = QHBoxLayout(); brand_row.setSpacing(10)
-        logo = QLabel(); logo.setFixedSize(44, 44)
-        logo.setPixmap(QPixmap(str(icon_root / 'netscan.png')).scaled(44, 44, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
-        brand_row.addWidget(logo)
-        brand = QLabel('NetScan'); brand.setObjectName('brand'); brand.setStyleSheet('font-size: 22px;'); brand_row.addWidget(brand)
-        brand_row.addStretch(); side.addLayout(brand_row)
+        brand = QLabel('NetScan'); brand.setObjectName('brand'); side.addWidget(brand)
         self.nav = QListWidget(); self.nav.setObjectName('navigation')
         self.nav.addItems(['Сканирование', 'Подсети', 'Параметры'])
         self.nav.setFixedHeight(150); side.addWidget(self.nav)

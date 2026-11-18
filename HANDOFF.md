@@ -17,3 +17,7 @@ Local new UI launched and full live UI worker scan passed with local vault defau
 Compatibility: hosted Linux assets require glibc>=2.35, local Debian12 assets require2.36. All builds x86_64; unsigned. Basic only, no NTLM/Digest/Kerberos/web portal. AppImage fallback --appimage-extract-and-run. Future release: bump version, commit to working branch, review/integrate develop, push matching version tag. Optional manual workflow requires selecting the matching existing tag ref. GHCR is not required. Earlier v0.1.0 tag has no release; leave history intact.
 
 Continue: `.venv/bin/python -m netscan`; tests `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q`; packaging `packaging/README.md`. Check Actions and assets before claiming future release delivery. Do not use main. Never include credentials in screenshots of parameter page or diagnostic logs.
+
+
+## 0.2.1 follow-up
+User requested removing logo from sidebar and keeping only NetScan name; logo remains window/application/installer icon. Source inventory import TXT is prepared outside Git, first current subnet then other networks ranked by a lightweight check of each listed .1 endpoint on3128; this is a heuristic, not an exhaustive subnet scan. No private inventory or credentials committed.
