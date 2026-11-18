@@ -27,3 +27,5 @@ User requested removing logo from sidebar and keeping only NetScan name; logo re
 
 ## 0.3.0 approved scope
 User approved nearest proposed update: quick share-link export for selected working proxies (Throne/Nekoray), bulk selection/copy, optional TXT exports and automatic credential-free result persistence. Keep existing ready-to-use defaults and system connection untouched. No auto-switching, background monitors or scan-resume implemented. URI format matched against official Nekoray fmt/Link2Bean.cpp QUrl parser and Throne protocol reference. Private live tests and exports must stay outside Git.
+
+0.3.0 delivered: https://github.com/ShafranovKirill/NetScan/releases/tag/v0.3.0 . PR3 merged, release commit4a319e7; source32 tests and hosted Linux/Windows installer smoke checks passed. Run44305279312. All five installer types published. Generated share link was parsed with QUrl and performed real authenticated Google HTTPS204 with TLS validation. Main untouched. Export uses current credential fields; history is credential-free snapshots only, no queue-resume or stability scheduling. UI reviewed via work/export-preview.png (not committed).
