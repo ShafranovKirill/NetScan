@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=NetScan
+Comment=Find and verify HTTP proxies in selected subnets
+Comment[ru]=Поиск и проверка HTTP-прокси в выбранных подсетях
+Exec=netscan
+Icon=netscan
+Terminal=false
+Categories=Network;Utility;
+StartupWMClass=NetScan

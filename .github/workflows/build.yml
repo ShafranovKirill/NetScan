@@ -1,0 +1,113 @@
+name: Test and build NetScan
+on:
+  push:
+    branches: [develop, 'feat/**', 'fix/**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    env:
+      QT_QPA_PLATFORM: offscreen
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
+      - run: python -m pip install -e '.[dev]'
+      - name: Validate release version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          VERSION=$(python -c 'import importlib.metadata; print(importlib.metadata.version("netscan-desktop"))')
+          test "$GITHUB_REF_NAME" = "v$VERSION"
+      - run: python -m pytest -q
+      - name: GUI lifecycle smoke test
+        run: NETSCAN_SMOKE_TEST=1 python -m netscan
+  build-linux:
+    needs: test
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ruby ruby-dev rpm libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0
+          sudo gem install fpm --no-document
+          python -m pip install -e '.[dev]'
+      - name: Freeze application
+        run: python packaging/build.py
+      - name: Frozen app smoke test
+        run: QT_QPA_PLATFORM=offscreen NETSCAN_SMOKE_TEST=1 dist/NetScan/NetScan
+      - name: Build installable packages
+        run: |
+          curl --fail --location --retry 3 https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage -o build/appimagetool-x86_64.AppImage
+          echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  build/appimagetool-x86_64.AppImage" | sha256sum --check
+          chmod +x build/appimagetool-x86_64.AppImage
+          VERSION=$(python -c 'import importlib.metadata; print(importlib.metadata.version("netscan-desktop"))')
+          bash packaging/linux.sh "$VERSION"
+          sha256sum release/* > release/SHA256SUMS-linux.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetScan-linux
+          path: release/*
+          if-no-files-found: error
+  build-windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: python -m pip install -e ".[dev]"
+      - run: python packaging/build.py
+      - name: Frozen app smoke test
+        shell: pwsh
+        run: |
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:NETSCAN_SMOKE_TEST = "1"
+          $process = Start-Process dist/NetScan/NetScan.exe -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Application smoke test failed" }
+      - name: Build installer and portable archive
+        shell: pwsh
+        run: |
+          $version = python -c 'import importlib.metadata; print(importlib.metadata.version("netscan-desktop"))'
+          New-Item -ItemType Directory -Force release | Out-Null
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
+          & $iscc "/DAppVersion=$version" packaging/windows.iss
+          if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
+          Compress-Archive -Path dist/NetScan -DestinationPath "release/NetScan-$version-windows-x64-portable.zip"
+          Get-ChildItem release -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content release/SHA256SUMS-windows.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: NetScan-windows
+          path: release/*
+          if-no-files-found: error
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [build-linux, build-windows]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: NetScan-*
+          merge-multiple: true
+          path: release
+      - name: Publish installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh release create "$GITHUB_REF_NAME" release/* --verify-tag --title "NetScan $GITHUB_REF_NAME" --generate-notes
