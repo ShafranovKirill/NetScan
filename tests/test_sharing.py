@@ -27,3 +27,15 @@ def test_private_file_export(tmp_path):
     write_links(path,'http://test:password@192.0.2.4:3128')
     assert path.read_text().startswith('http://test:password@')
     if os.name!='nt': assert path.stat().st_mode & 0o777 == 0o600
+
+
+def test_throne_native_outbound_roundtrip():
+    import base64,json
+    from netscan.sharing import make_throne_links
+    r=Result('192.0.2.4:3128','192.0.2.0/24','OK',google='OK',example='OK')
+    link=make_throne_links([r,r],'test@user','p#?:/ю')
+    assert link.startswith('throne://add/') and '\n' not in link
+    payload=json.loads(base64.urlsafe_b64decode(link.split('/',3)[3]))
+    assert payload=={'type':'http','server':'192.0.2.4','server_port':3128,'tag':'NetScan 192.0.2.4:3128','username':'test@user','password':'p#?:/ю'}
+    clean=json.loads(base64.urlsafe_b64decode(make_throne_links([r]).split('/',3)[3]))
+    assert 'username' not in clean and 'password' not in clean
