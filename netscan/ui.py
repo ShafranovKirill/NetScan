@@ -10,10 +10,12 @@ from PySide6.QtGui import QColor, QIcon, QRegularExpressionValidator, QPalette
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel, QPushButton,
     QLineEdit, QListWidget, QAbstractItemView, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QHBoxLayout, QFormLayout, QSpinBox, QDoubleSpinBox, QSplitter,
-    QGroupBox, QFileDialog, QMessageBox, QProgressBar, QHeaderView, QCheckBox, QStackedWidget, QFrame)
+    QGroupBox, QFileDialog, QMessageBox, QProgressBar, QHeaderView, QCheckBox, QStackedWidget, QFrame, QMenu)
 from netscan.core import Options, Scanner, Result, normalize_networks, host_count, MAX_HOSTS
 from netscan import __version__
 from netscan.preferences import load_credentials, save_credentials
+from netscan.sharing import make_links, write_links
+from netscan.history import load_history, save_history
 
 
 class Worker(QThread):
@@ -77,16 +79,33 @@ class Window(QMainWindow):
         self.table.setHorizontalHeaderLabels(['Прокси', 'Состояние', 'Google', 'Example', 'Авторизация', 'HTTP', 'мс', 'Время'])
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.table.setAlternatingRowColors(True); self.table.verticalHeader().hide()
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
         self.table.horizontalHeader().setStretchLastSection(True)
         self.table.setToolTip('Рабочий прокси подтвердил доступ к Google и Example.com по HTTPS с проверкой сертификатов.')
         scan.addWidget(self.table, 1)
         self.empty = QLabel('Список пуст. Добавьте подсети и начните поиск.'); self.empty.setObjectName('muted'); scan.addWidget(self.empty)
-        actions = QHBoxLayout()
-        actions.addWidget(self.button('Копировать адрес', self.copy_address))
-        self.recheck = self.button('Перепроверить', self.retest); actions.addWidget(self.recheck)
-        actions.addStretch(); actions.addWidget(self.button('Экспорт CSV', self.export)); scan.addLayout(actions)
+        sharing = QHBoxLayout()
+        self.share = self.button('Ссылки для Throne / Nekoray', self.copy_links)
+        self.share.setObjectName('primary'); sharing.addWidget(self.share)
+        sharing.addWidget(self.button('Копировать адреса', self.copy_address))
+        self.recheck = self.button('Перепроверить', self.retest); sharing.addWidget(self.recheck)
+        sharing.addStretch()
+        export_button = QPushButton('Экспорт ▾')
+        export_menu = QMenu(export_button)
+        export_menu.addAction('Ссылки в TXT', self.export_links)
+        export_menu.addAction('Таблица CSV', self.export)
+        export_menu.addSeparator()
+        self.clear_action = export_menu.addAction('Очистить результаты', self.clear_results)
+        export_button.setMenu(export_menu); sharing.addWidget(export_button); scan.addLayout(sharing)
+        share_options = QHBoxLayout()
+        self.include_credentials = QCheckBox('С логином и паролем'); self.include_credentials.setChecked(True)
+        self.include_credentials.setToolTip('Используются текущие логин и пароль из «Параметров», включая сохранённые результаты. Для прокси с принятой авторизацией данные попадут в ссылки открытым текстом. Передавайте их только нужному приложению.')
+        share_options.addWidget(self.include_credentials)
+        self.share_hint = QLabel('Выделите строки или скопируйте все рабочие. В клиенте — Ctrl+V.')
+        self.share_hint.setObjectName('muted'); self.share_hint.setWordWrap(True)
+        share_options.addWidget(self.share_hint, 1); scan.addLayout(share_options)
         self.pages.addWidget(scan_page)
 
         subnet_page = QWidget(); subnet = QVBoxLayout(subnet_page); subnet.setContentsMargins(0, 0, 0, 0); subnet.setSpacing(16)
@@ -163,6 +182,15 @@ class Window(QMainWindow):
                 try: field.setValue(float(value) if name == 'timeout' else int(value))
                 except (TypeError, ValueError): pass
         self.refresh_queue()
+        if os.environ.get('NETSCAN_NO_HISTORY') != '1':
+            try:
+                restored = load_history()
+                for result in restored:
+                    self.add_result(result)
+                if restored:
+                    self.state.setText('Сохранённые результаты • перед использованием можно перепроверить')
+            except (OSError, ValueError):
+                self.state.setText('Не удалось загрузить сохранённые результаты')
 
     def heading(self, text):
         label = QLabel(text); label.setObjectName('heading'); return label
@@ -265,7 +293,7 @@ class Window(QMainWindow):
         self.worker.summary.connect(self.got_summary)
         self.worker.finished.connect(self.finished)
         self.config.setEnabled(False); self.params.setEnabled(False)
-        self.start.setEnabled(False); self.recheck.setEnabled(False)
+        self.start.setEnabled(False); self.recheck.setEnabled(False); self.clear_action.setEnabled(False)
         self.pause.setEnabled(True); self.stop.setEnabled(True)
         self.progress.setValue(0); self.state.setText('Поиск запущен…')
         self.worker.start()
@@ -297,11 +325,12 @@ class Window(QMainWindow):
 
     def finished(self):
         self.config.setEnabled(True); self.params.setEnabled(True)
-        self.start.setEnabled(True); self.recheck.setEnabled(True)
+        self.start.setEnabled(True); self.recheck.setEnabled(True); self.clear_action.setEnabled(True)
         self.pause.setEnabled(False); self.stop.setEnabled(False); self.pause.setText('Пауза')
         self.state.setText(f'{self.last_summary} • {sum(r.working for r in self.results)} рабочих прокси')
         if self.last_summary == 'Завершено':
             self.progress.setValue(100)
+        self.persist_results()
 
     def toggle_pause(self):
         scanner = self.worker.scanner
@@ -319,13 +348,62 @@ class Window(QMainWindow):
             self.error('Пока нет найденных адресов.'); return
         self.launch(list(dict.fromkeys(r.address.split(':')[0] + '/32' for r in self.results)))
 
+    def selected_results(self, working_only=False):
+        visible = [row for row in range(len(self.results)) if not self.table.isRowHidden(row)]
+        selected = {index.row() for index in self.table.selectionModel().selectedRows()} & set(visible)
+        rows = [row for row in visible if row in selected] if selected else visible
+        return [self.results[row] for row in rows if not working_only or self.results[row].working]
+
     def copy_address(self):
-        row = self.table.currentRow()
-        if row >= 0:
-            QApplication.clipboard().setText(self.results[row].address)
+        selected = self.selected_results(working_only=True)
+        if not selected:
+            self.state.setText('Выберите рабочие прокси или дождитесь результатов.'); return
+        QApplication.clipboard().setText('\n'.join(result.address for result in selected))
+        self.state.setText(f'Скопировано адресов: {len(selected)}')
+
+    def links_text(self):
+        selected = self.selected_results(working_only=True)
+        if not selected:
+            self.state.setText('Нет выбранных рабочих прокси для передачи.'); return ''
+        username = self.username.text() if self.include_credentials.isChecked() else ''
+        password = self.password.text() if self.include_credentials.isChecked() else ''
+        try:
+            return make_links(selected, username=username, password=password)
+        except ValueError:
+            self.state.setText('Не удалось сформировать ссылки. Перепроверьте выбранные прокси.'); return ''
+
+    def copy_links(self):
+        links = self.links_text()
+        if links:
+            QApplication.clipboard().setText(links)
+            self.state.setText('Ссылки скопированы • вставьте в Throne / Nekoray через Ctrl+V')
+
+    def export_links(self):
+        links = self.links_text()
+        if not links: return
+        name, _ = QFileDialog.getSaveFileName(self, 'Ссылки для Throne / Nekoray', 'netscan-proxies.txt', 'Текст (*.txt)')
+        if not name: return
+        try:
+            write_links(name, links)
+            self.state.setText('Ссылки сохранены • импортируйте файл в клиент')
+        except OSError:
+            self.error('Не удалось сохранить файл.')
+
+    def persist_results(self):
+        if os.environ.get('NETSCAN_NO_HISTORY') == '1': return
+        try:
+            save_history(self.results)
+        except (OSError, ValueError):
+            self.state.setText('Результаты доступны в окне, но не удалось сохранить историю.')
+
+    def clear_results(self):
+        if self.worker and self.worker.isRunning(): return
+        self.results = []; self.table.setRowCount(0); self.count.setText('0 рабочих · 0 найдено')
+        self.refresh_queue(); self.empty.show(); self.persist_results()
+        self.state.setText('Сохранённые результаты очищены')
 
     def export(self):
-        selected = [r for r in self.results if r.working or not self.only_working.isChecked()]
+        selected = self.selected_results()
         if not selected:
             self.error('Нет результатов для экспорта.'); return
         name, _ = QFileDialog.getSaveFileName(self, 'Экспорт результатов', 'netscan-results.csv', 'CSV (*.csv)')
@@ -344,7 +422,7 @@ class Window(QMainWindow):
             self.stop_scan(); event.ignore()
             self.state.setText('Останавливаем поиск. Закройте окно после завершения проверок.')
         else:
-            self.password.clear(); self.save(); event.accept()
+            self.persist_results(); self.password.clear(); self.save(); event.accept()
 
 
 STYLE = '''
