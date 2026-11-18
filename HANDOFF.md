@@ -32,3 +32,5 @@ User approved nearest proposed update: quick share-link export for selected work
 
 
 0.3.1 fix approved by user: plain HTTP URLs did not import in installed Throne1.4.1. User provided native throne://add/Base64(JSON outbound) example. Main copy/TXT now native Throne schema type/http, server, server_port, tag and current credentials when enabled (even rows that did not challenge during scan). HTTP links retained separately for Nekoray. No client restart or system/network settings changes. User examples contain credentials; never commit their actual payloads.
+
+0.3.2 user steering: user confirmed native Throne import works and requested one Export to VPN client button with a choice. Menu now provides Throne native links and Nekoray plain HTTP URLs (no fragment), clipboard/TXT for each. Both use current credentials when explicitly enabled, independent of scan challenge status. User examples must never be saved in Git.

@@ -1,4 +1,4 @@
-# Building NetScan 0.3.1
+# Building NetScan 0.3.2
 
 All bundles target x86-64. Build Windows binaries on Windows and Linux packages
 on Linux. No credentials or subnet inventory belong in build inputs.
@@ -18,20 +18,20 @@ this directory layout, permitting replacement of compatible Qt libraries.
 
 Linux packaging requires Ruby/fpm, rpm, and appimagetool. See the workflow for exact
 commands, dependency packages, and the pinned appimagetool checksum.
-`bash packaging/linux.sh 0.3.1` emits DEB, RPM, and AppImage into `release/`.
+`bash packaging/linux.sh 0.3.2` emits DEB, RPM, and AppImage into `release/`.
 AppImage may need FUSE on the target; without FUSE, launch using
-`APPIMAGE_EXTRACT_AND_RUN=1 ./NetScan-0.3.1-x86_64.AppImage`.
+`APPIMAGE_EXTRACT_AND_RUN=1 ./NetScan-0.3.2-x86_64.AppImage`.
 
 Windows packaging requires Inno Setup 6:
 
 ```powershell
-& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=0.3.1 packaging/windows.iss
+& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /DAppVersion=0.3.2 packaging/windows.iss
 ```
 
 GitHub Actions runs tests before building. Manual runs with an empty `release_version` produce downloadable
-artifacts only. To publish/re-upload a release manually, supply `0.3.1` or
-`v0.3.1`; the existing tag must match both project metadata and the selected
-commit. Releases are idempotent: rerunning replaces assets with the same names. A `v0.3.1` tag publishes the installers as a GitHub Release after all
+artifacts only. To publish/re-upload a release manually, supply `0.3.2` or
+`v0.3.2`; the existing tag must match both project metadata and the selected
+commit. Releases are idempotent: rerunning replaces assets with the same names. A `v0.3.2` tag publishes the installers as a GitHub Release after all
 builds succeed; the tag must match the version in `pyproject.toml`. Update that
 version before tagging subsequent releases. Publishing a tag is a separate step.
 

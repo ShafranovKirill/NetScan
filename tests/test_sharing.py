@@ -10,13 +10,13 @@ def test_links_match_qurl_client_parser():
     q=QUrl(link)
     assert q.isValid() and q.host()=='192.0.2.4' and q.port()==3128
     assert q.userName()=='a@b:/ю' and q.password()=='p#?%:@/'
-    assert q.fragment(QUrl.ComponentFormattingOption.FullyDecoded)=='NetScan 192.0.2.4:3128'
+    assert q.fragment()==''
 
 
 def test_only_working_deduplicated_no_unneeded_credentials():
     r=Result('192.0.2.4:3128','192.0.2.0/24','OK',google='OK',example='OK')
     bad=Result('192.0.2.5:3128','192.0.2.0/24','failed')
-    text=make_links([r,bad,r],'secret-user','secret-password')
+    text=make_links([r,bad,r])
     assert text.count('http://')==1 and 'secret' not in text
 
 
