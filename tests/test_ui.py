@@ -30,3 +30,11 @@ def test_queue_order_results_and_filter(tmp_path):
     import shiboken6
     shiboken6.delete(window)
     app.processEvents()
+
+
+def test_gui_process_exits_cleanly():
+    import subprocess
+    import sys
+    env = {**os.environ, 'QT_QPA_PLATFORM': 'offscreen', 'NETSCAN_SMOKE_TEST': '1'}
+    process = subprocess.run([sys.executable, '-m', 'netscan'], env=env, timeout=15, capture_output=True)
+    assert process.returncode == 0, process.stderr.decode(errors='replace')
