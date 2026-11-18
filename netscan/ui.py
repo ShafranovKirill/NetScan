@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel, QPush
 from netscan.core import Options, Scanner, Result, normalize_networks, host_count, MAX_HOSTS
 from netscan import __version__
 from netscan.preferences import load_credentials, save_credentials
-from netscan.sharing import make_links, write_links
+from netscan.sharing import make_links, make_throne_links, write_links
 from netscan.history import load_history, save_history
 
 
@@ -87,21 +87,22 @@ class Window(QMainWindow):
         scan.addWidget(self.table, 1)
         self.empty = QLabel('Список пуст. Добавьте подсети и начните поиск.'); self.empty.setObjectName('muted'); scan.addWidget(self.empty)
         sharing = QHBoxLayout()
-        self.share = self.button('Ссылки для Throne / Nekoray', self.copy_links)
+        self.share = self.button('Профили для Throne', self.copy_links)
         self.share.setObjectName('primary'); sharing.addWidget(self.share)
         sharing.addWidget(self.button('Копировать адреса', self.copy_address))
         self.recheck = self.button('Перепроверить', self.retest); sharing.addWidget(self.recheck)
         sharing.addStretch()
         export_button = QPushButton('Экспорт ▾')
         export_menu = QMenu(export_button)
-        export_menu.addAction('Ссылки в TXT', self.export_links)
+        export_menu.addAction('Профили Throne в TXT', self.export_links)
+        export_menu.addAction('HTTP-ссылки для Nekoray', lambda: self.copy_links(native=False))
         export_menu.addAction('Таблица CSV', self.export)
         export_menu.addSeparator()
         self.clear_action = export_menu.addAction('Очистить результаты', self.clear_results)
         export_button.setMenu(export_menu); sharing.addWidget(export_button); scan.addLayout(sharing)
         share_options = QHBoxLayout()
         self.include_credentials = QCheckBox('С логином и паролем'); self.include_credentials.setChecked(True)
-        self.include_credentials.setToolTip('Используются текущие логин и пароль из «Параметров», включая сохранённые результаты. Для прокси с принятой авторизацией данные попадут в ссылки открытым текстом. Передавайте их только нужному приложению.')
+        self.include_credentials.setToolTip('Используются текущие логин и пароль из «Параметров», включая сохранённые результаты. Профили Throne включают эти данные при включённой галочке. Base64 не скрывает пароль. Передавайте их только нужному приложению.')
         share_options.addWidget(self.include_credentials)
         self.share_hint = QLabel('Выделите строки или скопируйте все рабочие. В клиенте — Ctrl+V.')
         self.share_hint.setObjectName('muted'); self.share_hint.setWordWrap(True)
@@ -361,27 +362,27 @@ class Window(QMainWindow):
         QApplication.clipboard().setText('\n'.join(result.address for result in selected))
         self.state.setText(f'Скопировано адресов: {len(selected)}')
 
-    def links_text(self):
+    def links_text(self, native=True):
         selected = self.selected_results(working_only=True)
         if not selected:
             self.state.setText('Нет выбранных рабочих прокси для передачи.'); return ''
         username = self.username.text() if self.include_credentials.isChecked() else ''
         password = self.password.text() if self.include_credentials.isChecked() else ''
         try:
-            return make_links(selected, username=username, password=password)
+            return (make_throne_links if native else make_links)(selected, username=username, password=password)
         except ValueError:
             self.state.setText('Не удалось сформировать ссылки. Перепроверьте выбранные прокси.'); return ''
 
-    def copy_links(self):
-        links = self.links_text()
+    def copy_links(self, checked=False, native=True):
+        links = self.links_text(native=native)
         if links:
             QApplication.clipboard().setText(links)
-            self.state.setText('Ссылки скопированы • вставьте в Throne / Nekoray через Ctrl+V')
+            self.state.setText('Профили скопированы • вставьте в Throne через Ctrl+V' if native else 'HTTP-ссылки скопированы • вставьте в Nekoray')
 
     def export_links(self):
         links = self.links_text()
         if not links: return
-        name, _ = QFileDialog.getSaveFileName(self, 'Ссылки для Throne / Nekoray', 'netscan-proxies.txt', 'Текст (*.txt)')
+        name, _ = QFileDialog.getSaveFileName(self, 'Профили Throne', 'netscan-throne.txt', 'Текст (*.txt)')
         if not name: return
         try:
             write_links(name, links)

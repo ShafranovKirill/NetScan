@@ -95,11 +95,15 @@ def test_share_selected_working_and_encode_credentials(window):
     window.table.selectRow(0)
     window.copy_links()
     text = APP.clipboard().text()
-    assert 'test%40user:test%3Apass@192.168.1.10:3128' in text
-    assert '192.168.1.11' not in text
+    import base64,json
+    profile=json.loads(base64.urlsafe_b64decode(text.split('/',3)[3]))
+    assert profile['server']=='192.168.1.10' and profile['username']=='test@user' and profile['password']=='test:pass'
+    window.copy_links(native=False)
+    assert 'test%40user:test%3Apass@192.168.1.10:3128' in APP.clipboard().text()
     window.include_credentials.setChecked(False); window.copy_links()
-    assert 'test%40user' not in APP.clipboard().text()
-    assert '192.168.1.10:3128' in APP.clipboard().text()
+    profile=json.loads(base64.urlsafe_b64decode(APP.clipboard().text().split('/',3)[3]))
+    assert 'username' not in profile and 'password' not in profile
+    assert profile['server']=='192.168.1.10'
     window.table.selectRow(2)
     APP.clipboard().setText('unchanged'); window.copy_links()
     assert APP.clipboard().text() == 'unchanged'
@@ -125,8 +129,9 @@ def test_links_file_and_csv_selected(window, monkeypatch, tmp_path):
     target = tmp_path / 'links.txt'
     monkeypatch.setattr(ui.QFileDialog, 'getSaveFileName', lambda *args: (str(target), ''))
     window.export_links()
-    assert '192.168.1.11:3128' in target.read_text()
-    assert '192.168.1.10:3128' not in target.read_text()
+    import base64,json
+    profile=json.loads(base64.urlsafe_b64decode(target.read_text().strip().split('/',3)[3]))
+    assert profile['server']=='192.168.1.11' and profile['server_port']==3128
     target = tmp_path / 'table.csv'
     window.export()
     assert '192.168.1.11:3128' in target.read_text(encoding='utf-8-sig')
@@ -163,7 +168,7 @@ def test_hidden_selection_falls_back_to_visible_working(window):
 def test_bad_result_link_reports_status(window, monkeypatch):
     add_working(window, '192.168.1.10:3128')
     def invalid(*args, **kwargs): raise ValueError('bad saved address')
-    monkeypatch.setattr(ui, 'make_links', invalid)
+    monkeypatch.setattr(ui, 'make_throne_links', invalid)
     APP.clipboard().setText('unchanged')
     window.copy_links()
     assert APP.clipboard().text() == 'unchanged'
