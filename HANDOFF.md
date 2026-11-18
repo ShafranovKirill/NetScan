@@ -34,3 +34,8 @@ User approved nearest proposed update: quick share-link export for selected work
 0.3.1 fix approved by user: plain HTTP URLs did not import in installed Throne1.4.1. User provided native throne://add/Base64(JSON outbound) example. Main copy/TXT now native Throne schema type/http, server, server_port, tag and current credentials when enabled (even rows that did not challenge during scan). HTTP links retained separately for Nekoray. No client restart or system/network settings changes. User examples contain credentials; never commit their actual payloads.
 
 0.3.2 user steering: user confirmed native Throne import works and requested one Export to VPN client button with a choice. Menu now provides Throne native links and Nekoray plain HTTP URLs (no fragment), clipboard/TXT for each. Both use current credentials when explicitly enabled, independent of scan challenge status. User examples must never be saved in Git.
+
+
+## Working import confirmed; save requested
+On2026-11-18 user confirmed both client paths work: native throne://add/ in Throne, plain HTTP links in Nekoray using its «Вставить как ссылку» action. Previous Squid ERR_INVALID_URL/Requesting subscription log resulted from subscription-download mode, not an invalid proxy format. Do NOT replace working Nekoray HTTP export with an unverified native format. No code was changed after this confirmation; only docs. User explicitly requested saving current work.
+Current accepted source: develop release commit75454eb, PR4 and PR5 merged, tagv0.3.2 pushed;34 tests passed, installers running via Actions44311573782. Current source app0.3.2 launched without installation, system networking/active client connection preserved. No actual credentials or private export files committed.
