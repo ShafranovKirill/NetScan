@@ -23,3 +23,7 @@ Continue: `.venv/bin/python -m netscan`; tests `QT_QPA_PLATFORM=offscreen .venv/
 User requested removing logo from sidebar and keeping only NetScan name; logo remains window/application/installer icon. Source inventory import TXT is prepared outside Git, first current subnet then other networks ranked by a lightweight check of each listed .1 endpoint on3128; this is a heuristic, not an exhaustive subnet scan. No private inventory or credentials committed.
 
 0.2.1 published successfully through Actions: https://github.com/ShafranovKirill/NetScan/releases/tag/v0.2.1 . PR2 merged, release commitde3a56b; cloud tests and Linux/Windows package install checks passed. User subnet import file generated in chat outputs,65 unique networks with current network first. Representative .1/.21/.200 checks did not find additional verified proxies outside the known current network. User is now discussing potential additions (Throne/Nekoray export etc.); no implementation of new features approved yet.
+
+
+## 0.3.0 approved scope
+User approved nearest proposed update: quick share-link export for selected working proxies (Throne/Nekoray), bulk selection/copy, optional TXT exports and automatic credential-free result persistence. Keep existing ready-to-use defaults and system connection untouched. No auto-switching, background monitors or scan-resume implemented. URI format matched against official Nekoray fmt/Link2Bean.cpp QUrl parser and Throne protocol reference. Private live tests and exports must stay outside Git.
