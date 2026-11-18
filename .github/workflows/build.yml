@@ -1,33 +1,47 @@
-name: Test and build NetScan
+name: Test, build and release NetScan
 on:
   push:
     branches: [develop, 'feat/**', 'fix/**']
     tags: ['v*']
   pull_request:
   workflow_dispatch:
+    inputs:
+      release_version:
+        description: 'Optional existing release tag/version, e.g. 0.2.0; blank builds artifacts only'
+        required: false
+        type: string
 permissions:
   contents: read
+concurrency:
+  group: netscan-${{ github.ref }}-${{ inputs.release_version || 'build' }}
+  cancel-in-progress: false
 jobs:
   test:
     runs-on: ubuntu-22.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release_tag: ${{ steps.version.outputs.release_tag }}
     env:
       QT_QPA_PLATFORM: offscreen
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
           cache: pip
-      - run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0
+      - run: sudo apt-get update && sudo apt-get install -y libegl1 libopengl0 libdbus-1-3
       - run: python -m pip install -e '.[dev]'
-      - name: Validate release version
-        if: startsWith(github.ref, 'refs/tags/v')
-        run: |
-          VERSION=$(python -c 'import importlib.metadata; print(importlib.metadata.version("netscan-desktop"))')
-          test "$GITHUB_REF_NAME" = "v$VERSION"
+      - name: Validate version and release target
+        id: version
+        env:
+          REQUESTED_VERSION: ${{ inputs.release_version }}
+        run: python packaging/validate_release.py
+      - run: python packaging/test_validate_release.py
       - run: python -m pytest -q
       - name: GUI lifecycle smoke test
-        run: NETSCAN_SMOKE_TEST=1 python -m netscan
+        run: timeout 30s env NETSCAN_SMOKE_TEST=1 python -m netscan
   build-linux:
     needs: test
     runs-on: ubuntu-22.04
@@ -40,20 +54,34 @@ jobs:
       - name: Build tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y ruby ruby-dev rpm libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0
+          sudo apt-get install -y ruby ruby-dev rpm libegl1 libopengl0 libxcb-cursor0 libxkbcommon-x11-0 libdbus-1-3
           sudo gem install fpm --no-document
           python -m pip install -e '.[dev]'
       - name: Freeze application
         run: python packaging/build.py
       - name: Frozen app smoke test
-        run: QT_QPA_PLATFORM=offscreen NETSCAN_SMOKE_TEST=1 dist/NetScan/NetScan
+        run: timeout 30s env QT_QPA_PLATFORM=offscreen NETSCAN_SMOKE_TEST=1 dist/NetScan/NetScan
       - name: Build installable packages
+        env:
+          VERSION: ${{ needs.test.outputs.version }}
         run: |
           curl --fail --location --retry 3 https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage -o build/appimagetool-x86_64.AppImage
           echo "ed4ce84f0d9caff66f50bcca6ff6f35aae54ce8135408b3fa33abfc3cb384eb0  build/appimagetool-x86_64.AppImage" | sha256sum --check
           chmod +x build/appimagetool-x86_64.AppImage
-          VERSION=$(python -c 'import importlib.metadata; print(importlib.metadata.version("netscan-desktop"))')
           bash packaging/linux.sh "$VERSION"
+      - name: Check installer metadata and installed app
+        env:
+          VERSION: ${{ needs.test.outputs.version }}
+        run: |
+          test "$(dpkg-deb -f release/*.deb Package)" = netscan
+          test "$(dpkg-deb -f release/*.deb Version)" = "$VERSION"
+          test "$(dpkg-deb -f release/*.deb Architecture)" = amd64
+          rpm -qp --qf '%{NAME} %{VERSION} %{ARCH}\n' release/*.rpm | tee build/rpm-metadata.txt
+          grep -Fx "netscan $VERSION x86_64" build/rpm-metadata.txt
+          sudo apt-get install -y ./release/*.deb
+          timeout 30s env QT_QPA_PLATFORM=offscreen NETSCAN_SMOKE_TEST=1 /usr/bin/netscan
+          sudo apt-get remove -y netscan
+          timeout 30s env QT_QPA_PLATFORM=offscreen NETSCAN_SMOKE_TEST=1 APPIMAGE_EXTRACT_AND_RUN=1 ./release/*.AppImage
           sha256sum release/* > release/SHA256SUMS-linux.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -76,18 +104,34 @@ jobs:
         run: |
           $env:QT_QPA_PLATFORM = "offscreen"
           $env:NETSCAN_SMOKE_TEST = "1"
-          $process = Start-Process dist/NetScan/NetScan.exe -Wait -PassThru
+          $process = Start-Process dist/NetScan/NetScan.exe -PassThru
+          if (!$process.WaitForExit(30000)) { $process.Kill(); throw "Application did not exit" }
           if ($process.ExitCode -ne 0) { throw "Application smoke test failed" }
       - name: Build installer and portable archive
         shell: pwsh
+        env:
+          VERSION: ${{ needs.test.outputs.version }}
         run: |
-          $version = python -c 'import importlib.metadata; print(importlib.metadata.version("netscan-desktop"))'
           New-Item -ItemType Directory -Force release | Out-Null
           $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
           if (!(Test-Path $iscc)) { choco install innosetup -y --no-progress }
-          & $iscc "/DAppVersion=$version" packaging/windows.iss
+          & $iscc "/DAppVersion=$env:VERSION" packaging/windows.iss
           if ($LASTEXITCODE -ne 0) { throw "Installer build failed" }
-          Compress-Archive -Path dist/NetScan -DestinationPath "release/NetScan-$version-windows-x64-portable.zip"
+          Compress-Archive -Path dist/NetScan -DestinationPath "release/NetScan-$env:VERSION-windows-x64-portable.zip"
+      - name: Install, smoke test and uninstall
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem release/*-setup.exe).FullName
+          $target = Join-Path $env:RUNNER_TEMP "NetScan-installed"
+          $process = Start-Process $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', "/DIR=`"$target`"") -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Installer failed" }
+          $env:QT_QPA_PLATFORM = "offscreen"
+          $env:NETSCAN_SMOKE_TEST = "1"
+          $process = Start-Process "$target/NetScan.exe" -PassThru
+          if (!$process.WaitForExit(30000)) { $process.Kill(); throw "Installed application did not exit" }
+          if ($process.ExitCode -ne 0) { throw "Installed application failed" }
+          $process = Start-Process "$target/unins000.exe" -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -Wait -PassThru
+          if ($process.ExitCode -ne 0) { throw "Uninstall failed" }
           Get-ChildItem release -File | Get-FileHash -Algorithm SHA256 | ForEach-Object { "$($_.Hash.ToLower())  $(Split-Path $_.Path -Leaf)" } | Set-Content release/SHA256SUMS-windows.txt
       - uses: actions/upload-artifact@v4
         with:
@@ -95,8 +139,8 @@ jobs:
           path: release/*
           if-no-files-found: error
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: [build-linux, build-windows]
+    if: needs.test.outputs.release_tag != ''
+    needs: [test, build-linux, build-windows]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -106,8 +150,13 @@ jobs:
           pattern: NetScan-*
           merge-multiple: true
           path: release
-      - name: Publish installers
+      - name: Publish or update release assets
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: gh release create "$GITHUB_REF_NAME" release/* --verify-tag --title "NetScan $GITHUB_REF_NAME" --generate-notes
+          RELEASE_TAG: ${{ needs.test.outputs.release_tag }}
+        run: |
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag --title "NetScan $RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" release/* --clobber

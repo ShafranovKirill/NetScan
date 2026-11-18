@@ -1,5 +1,5 @@
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #error "Pass /DAppVersion matching pyproject.toml"
 #endif
 [Setup]
 AppId={{D7064954-8B09-47DC-BEBB-F12986FB2E74}

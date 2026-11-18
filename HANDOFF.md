@@ -1,13 +1,17 @@
-# NetScan — initial release
+# NetScan — 0.2.0
 
-Updated: 2026-11-18 (Europe/Moscow).
+Updated: 2026-11-18 11:28 Europe/Moscow.
 
-Goal: installable Russian-language Qt app for prioritized IPv4 subnet proxy discovery on port 3128, Basic authentication after challenge, verified HTTPS checks, stop after N working results, pause/stop/retest and CSV export. User authorized implementation, local network testing and GitHub release installers. Default working mode. Main must remain untouched.
+Goal and authorization: installable Russian-language proxy scanner, prioritized user-supplied IPv4 subnet queue, search3128, optional proxy authentication, verified Google/Example HTTPS, stop after N working results. User approved implementation/testing and publishing installers to GitHub Releases. Latest UX request: sidebar pages, no slogan or numbered panels, separate strict IPv4 and mask default /24; supplied PNG logo. Default working mode; main must remain untouched.
 
-Implemented: core scanner, PySide6 UI, local subnet preferences (no passwords), tests, packaging for RPM/DEB/AppImage and Windows Setup/portable ZIP; release-on-tag GitHub Actions. Repository began empty; work started on feat/netscan. Develop will be established from reviewed initial implementation.
+Implemented in feat/sidebar-ui: new sidebar UX, strict IPv4 and /24 mask with single-IP shortcut, saved numeric preferences, OS credential vault (Secret Service/Linux, Credential Manager/Windows), user logo across application/icons/installers. Defaults on this device are configured in OS vault; never copy credentials or real inventories into repository or release notes.
 
-Validation: targeted tests, clean GUI offscreen lifecycle (source and PyInstaller binary), successful local PyInstaller build, and actual proxy checks in the user's current local subnet. Live test with concurrency 4 and limit 2 stopped at exactly two verified proxies. No system networking, proxy settings, Throne or DNS changed. No private inventory or credentials committed.
+Core scanner: bounded concurrency, priority by subnet, pause/stop, exact N working result limit, per-client proxy routing, Basic only after407, TLS verification, CSV export/recheck. No system networking, DNS, Throne or proxy settings changed. Network verification showed success with current local credentials; do not record values here.
 
-Known limits: Basic proxy authentication only (not NTLM/Digest/Kerberos/web portal), fixed Google and Example.com HTTPS targets, x86_64 installers, no signing, pause/stop waits for in-flight request timeouts. Local subnet queue persists; scan progress/results are not restored after restart. Published initial commit to feat/netscan and develop; main untouched. GUI launched locally. Full remote build/install verification pending until CI finishes; check GitHub Actions before claiming release artifacts are available.
+Validation:22 targeted tests pass; source and frozen GUI lifecycle pass. Compatible Linux binary built in Debian12 container (glibc2.36), actual DEB installation/start/removal and AppImage startup being checked before upload. RPM metadata inspected; Fedora GUI launch validated. UI screenshots inspected. No external full subnet sweep. Existing initial GUI may remain open; avoid terminating an active user scan.
 
-Continue: `.venv/bin/python -m netscan`; tests `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q`; packaging `packaging/README.md`. Review actual workflow run status and fix failures, then tag release only after tests pass. Do not store credentials or real proxy inventories in this file.
+Packaging: Linux RPM/DEB/AppImage and Windows Setup EXE/portable ZIP. GitHub Actions has tag and manually requested release builds, SHA/version validation, installer smoke checks and idempotent upload. Optional GHCR not required. Actions enabled but GitHub currently exposes zero workflows/runs despite valid files/default develop; exact cause unknown (registration delay is only a hypothesis). Windows executable not yet built or validated. Source workflow validated with actionlint and release-validation tests.
+
+Current release plan: publish0.2.0 Linux preview only after local install tests; Windows assets require an actual hosted Windows run. Linux local artifacts require glibc>=2.36, x86_64; no digital signing. AppImage fallback --appimage-extract-and-run. Earlier tagv0.1.0 exists but has no release; leave history intact.
+
+Continue: `.venv/bin/python -m netscan`; tests `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q`; packaging `packaging/README.md`. Check PR/release and GitHub Actions state before claiming Windows delivery. Do not use main. Never include credentials in screenshots of parameter page or diagnostic logs.

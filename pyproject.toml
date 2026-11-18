@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netscan-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Desktop subnet and HTTP proxy availability scanner"
 requires-python = ">=3.11"
 license = "MIT"
-dependencies = ["PySide6>=6.8,<7", "httpx>=0.28,<1"]
+dependencies = ["PySide6>=6.8,<7", "httpx>=0.28,<1", "keyring>=25,<27"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8,<10", "pyinstaller>=6.11,<7"]
@@ -20,4 +20,4 @@ netscan = "netscan.__main__:main"
 include = ["netscan*"]
 
 [tool.pytest.ini_options]
-testpaths = ["tests"]
+testpaths = ["tests", "packaging/test_validate_release.py"]
