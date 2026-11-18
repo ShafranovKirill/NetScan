@@ -1,16 +1,19 @@
 from __future__ import annotations
 import csv
 import os
+import ipaddress
 import sys
 from dataclasses import asdict
 from pathlib import Path
-from PySide6.QtCore import Qt, QSettings, QThread, Signal, QTimer
-from PySide6.QtGui import QColor, QIcon
+from PySide6.QtCore import Qt, QSettings, QThread, Signal, QTimer, QRegularExpression
+from PySide6.QtGui import QColor, QIcon, QPixmap, QRegularExpressionValidator, QPalette
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QLabel, QPushButton,
     QLineEdit, QListWidget, QAbstractItemView, QTableWidget, QTableWidgetItem,
     QVBoxLayout, QHBoxLayout, QFormLayout, QSpinBox, QDoubleSpinBox, QSplitter,
-    QGroupBox, QFileDialog, QMessageBox, QProgressBar, QHeaderView, QCheckBox)
+    QGroupBox, QFileDialog, QMessageBox, QProgressBar, QHeaderView, QCheckBox, QStackedWidget, QFrame)
 from netscan.core import Options, Scanner, Result, normalize_networks, host_count, MAX_HOSTS
+from netscan import __version__
+from netscan.preferences import load_credentials, save_credentials
 
 
 class Worker(QThread):
@@ -34,112 +37,154 @@ class Worker(QThread):
 
 
 class Window(QMainWindow):
-    def __init__(self):
+    def __init__(self, settings=None):
         super().__init__()
-        self.setWindowTitle('NetScan • Поиск прокси')
-        self.resize(1240, 820)
-        self.settings = QSettings('NetScan', 'NetScan')
+        self.setWindowTitle('NetScan')
+        self.resize(1180, 760)
+        self.setMinimumSize(1000, 680)
+        self.settings = settings if settings is not None else QSettings('NetScan', 'NetScan')
         self.worker = None
         self.results = []
         self.last_summary = ''
         icon_root = Path(getattr(sys, '_MEIPASS', Path(__file__).parent.parent / 'packaging'))
-        self.setWindowIcon(QIcon(str(icon_root / 'netscan.svg')))
-        root = QWidget()
-        self.setCentralWidget(root)
-        layout = QVBoxLayout(root)
-        layout.setContentsMargins(24, 20, 24, 20)
-        title = QLabel('NetScan')
-        title.setObjectName('title')
-        layout.addWidget(title)
-        caption = QLabel('Найдите прокси. Проверьте интернет. Сохраните рабочие адреса.')
-        caption.setObjectName('caption')
-        layout.addWidget(caption)
-        split = QSplitter()
-        layout.addWidget(split, 1)
-        left = QWidget()
-        ll = QVBoxLayout(left)
-        ll.setContentsMargins(0, 12, 12, 0)
-        self.config = QGroupBox('01   Подсети и порядок проверки')
-        ll.addWidget(self.config, 1)
-        box = QVBoxLayout(self.config)
-        self.input = QLineEdit()
-        self.input.setPlaceholderText('Например: 10.133.51.0/24 или один IP')
-        self.input.returnPressed.connect(self.add_input)
-        box.addWidget(self.input)
-        row = QHBoxLayout()
-        row.addWidget(self.button('Добавить', self.add_input))
-        row.addWidget(self.button('Импорт .txt', self.import_networks))
-        box.addLayout(row)
-        self.networks = QListWidget()
+        self.setWindowIcon(QIcon(str(icon_root / 'netscan.png')))
+        root = QWidget(); self.setCentralWidget(root)
+        shell = QHBoxLayout(root); shell.setContentsMargins(0, 0, 0, 0); shell.setSpacing(0)
+        sidebar = QFrame(); sidebar.setObjectName('sidebar'); sidebar.setFixedWidth(200)
+        side = QVBoxLayout(sidebar); side.setContentsMargins(16, 24, 16, 18); side.setSpacing(16)
+        brand_row = QHBoxLayout(); brand_row.setSpacing(10)
+        logo = QLabel(); logo.setFixedSize(44, 44)
+        logo.setPixmap(QPixmap(str(icon_root / 'netscan.png')).scaled(44, 44, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation))
+        brand_row.addWidget(logo)
+        brand = QLabel('NetScan'); brand.setObjectName('brand'); brand.setStyleSheet('font-size: 22px;'); brand_row.addWidget(brand)
+        brand_row.addStretch(); side.addLayout(brand_row)
+        self.nav = QListWidget(); self.nav.setObjectName('navigation')
+        self.nav.addItems(['Сканирование', 'Подсети', 'Параметры'])
+        self.nav.setFixedHeight(150); side.addWidget(self.nav)
+        side.addStretch()
+        self.queue_summary = QLabel(); self.queue_summary.setObjectName('muted'); self.queue_summary.setWordWrap(True)
+        side.addWidget(self.queue_summary)
+        version = QLabel(f'Версия {__version__}'); version.setObjectName('muted'); side.addWidget(version)
+        shell.addWidget(sidebar)
+        content = QWidget(); content_layout = QVBoxLayout(content)
+        content_layout.setContentsMargins(28, 24, 28, 22); content_layout.setSpacing(16)
+        self.pages = QStackedWidget(); content_layout.addWidget(self.pages, 1)
+        shell.addWidget(content, 1)
+
+        scan_page = QWidget(); scan = QVBoxLayout(scan_page); scan.setContentsMargins(0, 0, 0, 0); scan.setSpacing(16)
+        scan.addWidget(self.heading('Сканирование'))
+        top = QHBoxLayout()
+        self.count = QLabel('0 рабочих · 0 найдено'); self.count.setObjectName('counter')
+        top.addWidget(self.count, 1)
+        self.only_working = QCheckBox('Только рабочие'); self.only_working.toggled.connect(self.filter_rows)
+        top.addWidget(self.only_working); scan.addLayout(top)
+        self.table = QTableWidget(0, 8)
+        self.table.setHorizontalHeaderLabels(['Прокси', 'Состояние', 'Google', 'Example', 'Авторизация', 'HTTP', 'мс', 'Время'])
+        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.table.setAlternatingRowColors(True); self.table.verticalHeader().hide()
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
+        self.table.horizontalHeader().setStretchLastSection(True)
+        self.table.setToolTip('Рабочий прокси подтвердил доступ к Google и Example.com по HTTPS с проверкой сертификатов.')
+        scan.addWidget(self.table, 1)
+        self.empty = QLabel('Список пуст. Добавьте подсети и начните поиск.'); self.empty.setObjectName('muted'); scan.addWidget(self.empty)
+        actions = QHBoxLayout()
+        actions.addWidget(self.button('Копировать адрес', self.copy_address))
+        self.recheck = self.button('Перепроверить', self.retest); actions.addWidget(self.recheck)
+        actions.addStretch(); actions.addWidget(self.button('Экспорт CSV', self.export)); scan.addLayout(actions)
+        self.pages.addWidget(scan_page)
+
+        subnet_page = QWidget(); subnet = QVBoxLayout(subnet_page); subnet.setContentsMargins(0, 0, 0, 0); subnet.setSpacing(16)
+        subnet.addWidget(self.heading('Подсети'))
+        subtitle = QLabel('Верхние строки проверяются первыми. Перетаскивайте их, чтобы изменить порядок.'); subtitle.setObjectName('muted'); subtitle.setWordWrap(True); subnet.addWidget(subtitle)
+        self.config = QWidget(); box = QVBoxLayout(self.config); box.setContentsMargins(0, 0, 0, 0); box.setSpacing(12)
+        entry_labels = QHBoxLayout(); entry_labels.addWidget(QLabel('IPv4-адрес'), 1); mask_label = QLabel('Маска'); mask_label.setFixedWidth(90); entry_labels.addWidget(mask_label); entry_labels.addSpacing(192); box.addLayout(entry_labels)
+        entry = QHBoxLayout()
+        self.input = QLineEdit(); self.input.setPlaceholderText('192.168.1.0'); self.input.setMaxLength(15)
+        octet = r'(?:25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)'
+        self.input.setValidator(QRegularExpressionValidator(QRegularExpression(rf'{octet}\.{octet}\.{octet}\.{octet}'), self.input))
+        self.input.returnPressed.connect(self.add_input); entry.addWidget(self.input, 1)
+        self.mask = QSpinBox(); self.mask.setRange(0, 32); self.mask.setValue(24); self.mask.setPrefix('/'); self.mask.setFixedWidth(90)
+        self.mask.setToolTip('/24 — подсеть, /32 — один адрес'); entry.addWidget(self.mask)
+        entry.addWidget(self.button('Один IP', lambda: self.mask.setValue(32)))
+        entry.addWidget(self.button('Добавить', self.add_input)); box.addLayout(entry)
+        self.input_hint = QLabel('Подсеть будет приведена к её сетевому адресу. Для одного устройства выберите /32.'); self.input_hint.setObjectName('muted'); self.input_hint.setWordWrap(True); box.addWidget(self.input_hint)
+        self.networks = QListWidget(); self.networks.setObjectName('networks')
         self.networks.setDragDropMode(QAbstractItemView.DragDropMode.InternalMove)
         self.networks.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.networks.model().rowsMoved.connect(lambda *args: self.save())
         box.addWidget(self.networks, 1)
         saved = self.settings.value('networks', [])
-        if isinstance(saved, str):
-            saved = [saved]
-        for network in saved or []:
-            self.networks.addItem(network)
+        if isinstance(saved, str): saved = [saved]
+        for network in saved or []: self.networks.addItem(network)
         row = QHBoxLayout()
         row.addWidget(self.button('↑ Выше', lambda: self.move(-1)))
         row.addWidget(self.button('↓ Ниже', lambda: self.move(1)))
-        row.addWidget(self.button('Удалить', self.remove))
-        box.addLayout(row)
-        help_label = QLabel('Сверху — первый приоритет. Перетаскивайте строки.\nСледующая подсеть начнётся после текущей.')
-        help_label.setWordWrap(True)
-        box.addWidget(help_label)
-        self.params = QGroupBox('02   Параметры поиска')
-        ll.addWidget(self.params)
-        form = QFormLayout(self.params)
+        row.addWidget(self.button('Удалить', self.remove)); row.addStretch()
+        row.addWidget(self.button('Импорт .txt', self.import_networks)); box.addLayout(row)
+        subnet.addWidget(self.config, 1); self.pages.addWidget(subnet_page)
+
+        params_page = QWidget(); params_layout = QVBoxLayout(params_page); params_layout.setContentsMargins(0, 0, 0, 0); params_layout.setSpacing(20)
+        params_layout.addWidget(self.heading('Параметры'))
+        self.params = QWidget(); form = QFormLayout(self.params); form.setContentsMargins(0, 0, 0, 0); form.setHorizontalSpacing(28); form.setVerticalSpacing(14)
+        form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
         self.port = QSpinBox(); self.port.setRange(1, 65535); self.port.setValue(3128)
         self.parallel = QSpinBox(); self.parallel.setRange(1, 64); self.parallel.setValue(12)
         self.timeout = QDoubleSpinBox(); self.timeout.setRange(.2, 5); self.timeout.setSingleStep(.2); self.timeout.setValue(.8); self.timeout.setSuffix(' с')
         self.limit = QSpinBox(); self.limit.setRange(0, 10000); self.limit.setSpecialValueText('Без ограничения')
-        for label, field in [('TCP-порт', self.port), ('Одновременно', self.parallel), ('Ожидание порта', self.timeout), ('Найти рабочих и остановиться', self.limit)]:
-            form.addRow(label, field)
-        self.username = QLineEdit(); self.username.setPlaceholderText('Необязательно')
-        self.password = QLineEdit(); self.password.setEchoMode(QLineEdit.EchoMode.Password)
-        form.addRow('Логин прокси', self.username)
-        form.addRow('Пароль', self.password)
-        note = QLabel('Данные отправляются только после запроса Basic-авторизации. Пароль не сохраняется. Для Basic используйте доверенные прокси.')
-        note.setWordWrap(True)
-        form.addRow(note)
-        right = QWidget(); rl = QVBoxLayout(right); rl.setContentsMargins(10, 12, 0, 0)
-        header = QHBoxLayout()
-        self.count = QLabel('03   Результаты • 0 рабочих')
-        header.addWidget(self.count, 1)
-        self.only_working = QCheckBox('Только рабочие'); self.only_working.toggled.connect(self.filter_rows)
-        header.addWidget(self.only_working)
-        rl.addLayout(header)
-        self.table = QTableWidget(0, 8)
-        self.table.setHorizontalHeaderLabels(['Прокси', 'Результат', 'Google HTTPS', 'Example HTTPS', 'Авторизация', 'HTTP', 'Проверка, мс', 'Время'])
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setAlternatingRowColors(True)
-        self.table.verticalHeader().hide()
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.ResizeToContents)
-        self.table.horizontalHeader().setStretchLastSection(True)
-        rl.addWidget(self.table, 1)
-        info = QLabel('Рабочий = Google вернул 204 и Example.com подтвердил страницу по HTTPS.\nПроверяются сертификаты TLS. Настройки системы и Throne не изменяются.')
-        info.setWordWrap(True)
-        rl.addWidget(info)
-        actions = QHBoxLayout()
-        actions.addWidget(self.button('Копировать адрес', self.copy_address))
-        self.recheck = self.button('Перепроверить найденные', self.retest)
-        actions.addWidget(self.recheck)
-        actions.addWidget(self.button('Экспорт CSV', self.export))
-        rl.addLayout(actions)
-        split.addWidget(left); split.addWidget(right); split.setSizes([390, 820])
-        self.state = QLabel('Готово • добавьте подсети для проверки')
-        layout.addWidget(self.state)
-        self.progress = QProgressBar(); self.progress.setRange(0, 100); self.progress.setValue(0)
-        layout.addWidget(self.progress)
+        for label, field in [('Порт прокси', self.port), ('Одновременных проверок', self.parallel), ('Ожидание ответа порта', self.timeout), ('Остановиться после рабочих', self.limit)]:
+            field.setMaximumWidth(310); form.addRow(label, field)
+        self.username = QLineEdit(); self.username.setPlaceholderText('Логин сети')
+        self.password = QLineEdit(); self.password.setEchoMode(QLineEdit.EchoMode.Password); self.password.setPlaceholderText('Пароль сети')
+        try:
+            username, password = ('', '') if os.environ.get('NETSCAN_NO_CREDENTIALS') == '1' else load_credentials()
+            self.username.setText(username); self.password.setText(password)
+        except RuntimeError:
+            pass
+        for label, field in [('Логин', self.username), ('Пароль', self.password)]:
+            field.setMaximumWidth(310); form.addRow(label, field)
+        self.remember = QCheckBox('Запомнить в хранилище паролей'); form.addRow('', self.remember)
+        show_password = QCheckBox('Показать пароль')
+        show_password.toggled.connect(lambda shown: self.password.setEchoMode(QLineEdit.EchoMode.Normal if shown else QLineEdit.EchoMode.Password)); form.addRow('', show_password)
+        note = QLabel('Авторизация используется только по запросу прокси. Системные настройки сети не меняются.'); note.setObjectName('muted'); note.setWordWrap(True); form.addRow(note)
+        params_layout.addWidget(self.params)
+        params_layout.addStretch()
+        params_layout.addWidget(self.button('Сохранить параметры', self.save_parameters), alignment=Qt.AlignmentFlag.AlignLeft)
+        self.settings_notice = QLabel(''); self.settings_notice.setObjectName('muted'); params_layout.addWidget(self.settings_notice)
+        self.pages.addWidget(params_page)
+
+        self.state = QLabel('Готово'); self.state.setObjectName('muted'); content_layout.addWidget(self.state)
+        self.progress = QProgressBar(); self.progress.setRange(0, 100); self.progress.setValue(0); self.progress.setFixedHeight(8); self.progress.setTextVisible(False); content_layout.addWidget(self.progress)
         controls = QHBoxLayout()
         self.start = self.button('Начать поиск', self.start_scan); self.start.setObjectName('primary')
         self.pause = self.button('Пауза', self.toggle_pause); self.pause.setEnabled(False)
         self.stop = self.button('Остановить', self.stop_scan); self.stop.setEnabled(False)
         controls.addWidget(self.start); controls.addWidget(self.pause); controls.addWidget(self.stop); controls.addStretch()
-        controls.addWidget(QLabel('NetScan 0.1.0'))
-        layout.addLayout(controls)
+        content_layout.addLayout(controls)
+        self.nav.currentRowChanged.connect(self.pages.setCurrentIndex); self.nav.setCurrentRow(0)
+        for name, field in [('port', self.port), ('parallel', self.parallel), ('timeout', self.timeout), ('limit', self.limit), ('mask', self.mask)]:
+            value = self.settings.value(name)
+            if value is not None:
+                try: field.setValue(float(value) if name == 'timeout' else int(value))
+                except (TypeError, ValueError): pass
+        self.refresh_queue()
+
+    def heading(self, text):
+        label = QLabel(text); label.setObjectName('heading'); return label
+
+    def refresh_queue(self):
+        number = self.networks.count()
+        self.queue_summary.setText(f'В очереди: {number} подсетей\nПорт {self.port.value()}')
+        self.empty.setText('Список пуст. Добавьте подсети и начните поиск.' if not number else 'Результаты появятся после начала поиска.')
+
+    def save_parameters(self):
+        if self.remember.isChecked():
+            try:
+                save_credentials(self.username.text(), self.password.text())
+            except RuntimeError as exc:
+                self.error(str(exc)); return
+        self.save()
+        self.settings_notice.setText('Параметры сохранены.' + (' Учётные данные — в хранилище паролей.' if self.remember.isChecked() else ' Пароль не записан в настройки.'))
 
     def button(self, text, callback):
         button = QPushButton(text); button.clicked.connect(callback); return button
@@ -159,7 +204,18 @@ class Window(QMainWindow):
             self.error(str(exc))
 
     def add_input(self):
-        self.add_text(self.input.text()); self.input.clear()
+        address = self.input.text().strip()
+        if not self.input.hasAcceptableInput():
+            self.input_hint.setText('Введите IPv4-адрес из четырёх чисел от 0 до 255.')
+            self.input.setProperty('invalid', True); self.input.style().unpolish(self.input); self.input.style().polish(self.input)
+            self.input.setFocus(); return
+        try:
+            ipaddress.IPv4Address(address)
+        except ValueError:
+            self.input_hint.setText('Неверный IPv4-адрес. Проверьте каждое число.'); return
+        self.add_text(f'{address}/{self.mask.value()}')
+        self.input.clear(); self.input.setProperty('invalid', False); self.input.style().unpolish(self.input); self.input.style().polish(self.input)
+        self.input_hint.setText('Адрес добавлен. Верхние строки проверяются первыми.')
 
     def import_networks(self):
         name, _ = QFileDialog.getOpenFileName(self, 'Импорт подсетей', '', 'Текст (*.txt);;Все файлы (*)')
@@ -181,6 +237,9 @@ class Window(QMainWindow):
 
     def save(self):
         self.settings.setValue('networks', [self.networks.item(i).text() for i in range(self.networks.count())])
+        for name, field in [('port', self.port), ('parallel', self.parallel), ('timeout', self.timeout), ('limit', self.limit), ('mask', self.mask)]:
+            self.settings.setValue(name, field.value())
+        self.refresh_queue()
 
     def options(self):
         return Options(port=self.port.value(), concurrency=self.parallel.value(),
@@ -194,11 +253,16 @@ class Window(QMainWindow):
         if self.worker and self.worker.isRunning():
             return
         if not networks:
-            self.error('Добавьте хотя бы одну подсеть или адрес.'); return
+            self.nav.setCurrentRow(1); self.input.setFocus(); self.state.setText('Добавьте хотя бы одну подсеть или адрес.'); return
         if host_count(networks) > MAX_HOSTS:
             self.error(f'За один запуск — не более {MAX_HOSTS} адресов. Разделите список.'); return
+        if self.remember.isChecked():
+            try: save_credentials(self.username.text(), self.password.text())
+            except RuntimeError as exc:
+                self.error(str(exc)); return
         self.save()
-        self.results = []; self.table.setRowCount(0); self.count.setText('03   Результаты • 0 рабочих')
+        self.results = []; self.table.setRowCount(0); self.count.setText('0 рабочих · 0 найдено')
+        self.empty.hide(); self.nav.setCurrentRow(0)
         scanner = Scanner(self.options())
         self.worker = Worker(scanner, networks)
         self.worker.result.connect(self.add_result)
@@ -221,7 +285,8 @@ class Window(QMainWindow):
                 item.setForeground(QColor('#5ee6b3' if result.working else '#f3c47a'))
             self.table.setItem(row, col, item)
         self.table.setRowHidden(row, self.only_working.isChecked() and not result.working)
-        self.count.setText(f'03   Результаты • {sum(r.working for r in self.results)} рабочих / {len(self.results)} найдено')
+        self.count.setText(f'{sum(r.working for r in self.results)} рабочих · {len(self.results)} найдено')
+        self.empty.hide()
 
     def filter_rows(self):
         for row, result in enumerate(self.results):
@@ -288,28 +353,52 @@ class Window(QMainWindow):
 
 
 STYLE = '''
-QWidget { background: #101923; color: #e4edf6; font-family: "Segoe UI", "Noto Sans", sans-serif; font-size: 13px; }
-QLabel#title { font-size: 32px; font-weight: 700; color: #65dfc6; }
-QLabel#caption { color: #a1b4c7; padding-bottom: 8px; }
-QGroupBox { border: 1px solid #304253; border-radius: 10px; margin-top: 14px; padding: 16px 10px 10px; font-weight: 600; }
-QGroupBox::title { subcontrol-origin: margin; left: 12px; padding: 0 5px; }
-QLineEdit, QSpinBox, QDoubleSpinBox, QListWidget { background: #172534; border: 1px solid #34495c; border-radius: 6px; padding: 7px; selection-background-color: #286b69; }
-QPushButton { background: #223648; border: 1px solid #3a5268; border-radius: 6px; padding: 9px 12px; }
-QPushButton:hover { background: #2c465d; }
-QPushButton:disabled { color: #6b7e8e; border-color: #263747; }
-QPushButton#primary { background: #45cdb3; color: #082b28; font-weight: 700; padding: 11px 28px; }
-QTableWidget { background: #12202d; alternate-background-color: #192a39; gridline-color: #293d4e; border: 1px solid #304253; border-radius: 7px; }
-QHeaderView::section { background: #23384a; border: none; padding: 9px; font-weight: 600; }
-QProgressBar { background: #1c3040; border: none; border-radius: 5px; text-align: center; min-height: 18px; }
-QProgressBar::chunk { background: #268c83; border-radius: 5px; }
-QListWidget::item { padding: 7px; }
-QListWidget::item:selected { background: #286b69; }
+QWidget { background: #111821; color: #e4eaf1; font-family: "Segoe UI", "Noto Sans", sans-serif; font-size: 13px; }
+QFrame#sidebar { background: #0b1118; border-right: 1px solid #223040; }
+QLabel#brand { background: transparent; color: #e8f5f2; font-size: 25px; font-weight: 700; padding: 0 10px 18px; }
+QLabel#heading { font-size: 25px; font-weight: 600; padding-bottom: 4px; }
+QLabel#muted { color: #8999ac; background: transparent; }
+QLabel#counter { color: #b5c3d1; font-size: 14px; }
+QListWidget#navigation { background: transparent; border: none; outline: none; }
+QListWidget#navigation::item { padding: 12px 14px; margin: 3px 0; border-radius: 7px; color: #9caec0; }
+QListWidget#navigation::item:selected { background: #183830; color: #81e3bd; }
+QListWidget#navigation::item:hover { background: #172331; }
+QLineEdit, QSpinBox, QDoubleSpinBox { background: #192430; border: 1px solid #344456; border-radius: 6px; padding: 9px; selection-background-color: #285f51; }
+QLineEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus { border-color: #62cfa7; }
+QLineEdit[invalid="true"] { border-color: #e5a277; }
+QPushButton { background: #1c2a38; border: 1px solid #344658; border-radius: 6px; padding: 10px 14px; }
+QPushButton:hover { background: #293c4e; }
+QPushButton:disabled { color: #607183; border-color: #283746; }
+QPushButton#primary { background: #6cd6af; border-color: #6cd6af; color: #092b20; font-weight: 700; padding: 11px 24px; }
+QPushButton#primary:hover { background: #90e7c5; }
+QPushButton#primary:disabled { background: #244c40; border-color: #244c40; color: #708e82; }
+QTableWidget { background: #131e29; alternate-background-color: #172431; gridline-color: #263646; border: 1px solid #293a4b; border-radius: 7px; }
+QHeaderView::section { background: #1d2b3a; border: none; color: #a9bacb; padding: 10px 8px; font-weight: 600; }
+QTableWidget::item { padding: 8px 6px; }
+QTableWidget::item:selected { background: #245445; color: white; }
+QProgressBar { background: #22313f; border: none; border-radius: 4px; }
+QProgressBar::chunk { background: #6cd6af; border-radius: 4px; }
+QListWidget#networks { background: #131e29; border: 1px solid #293a4b; border-radius: 7px; outline: none; }
+QListWidget#networks::item { padding: 13px; border-bottom: 1px solid #223141; }
+QListWidget#networks::item:selected { background: #245445; }
+QCheckBox { spacing: 8px; }
+QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid #52677c; border-radius: 3px; background: #182430; }
+QCheckBox::indicator:checked { background: #6cd6af; border-color: #6cd6af; }
+QToolTip { background: #223345; border: 1px solid #43576c; color: #e4edf6; }
 '''
+
 
 
 def main():
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
+    palette = app.palette()
+    for role in (QPalette.ColorRole.Text, QPalette.ColorRole.WindowText, QPalette.ColorRole.ButtonText):
+        palette.setColor(role, QColor('#e4eaf1'))
+    palette.setColor(QPalette.ColorRole.Base, QColor('#192430'))
+    palette.setColor(QPalette.ColorRole.Button, QColor('#1c2a38'))
+    palette.setColor(QPalette.ColorRole.Highlight, QColor('#245445'))
+    app.setPalette(palette)
     app.setStyleSheet(STYLE)
     window = Window(); window.show()
     if os.environ.get('NETSCAN_SMOKE_TEST') == '1':

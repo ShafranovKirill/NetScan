@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
-VERSION="${1:-0.1.0}"
+VERSION="${1:?Usage: packaging/linux.sh VERSION}"
+GLIBC_MIN="${NETSCAN_GLIBC_MIN:-$(getconf GNU_LIBC_VERSION | cut -d ' ' -f 2)}"
+rm -rf build/root build/NetScan.AppDir
+
 mkdir -p release build/root/opt/netscan build/root/usr/bin build/root/usr/share/applications build/root/usr/share/icons/hicolor/256x256/apps
 cp -a dist/NetScan/. build/root/opt/netscan/
 cat > build/root/usr/bin/netscan <<'LAUNCH'
@@ -13,9 +16,9 @@ cp build/icons/netscan.png build/root/usr/share/icons/hicolor/256x256/apps/
 for kind in deb rpm; do
   extra=()
   if [ "$kind" = deb ]; then
-    extra=(--depends libxcb-cursor0 --depends libxkbcommon-x11-0 --depends libegl1 --depends libgl1)
+    extra=(--depends "libc6 >= $GLIBC_MIN" --depends libxcb-cursor0 --depends libxkbcommon-x11-0 --depends libegl1 --depends libgl1 --depends libglib2.0-0 --depends libfontconfig1 --depends libdbus-1-3)
   else
-    extra=(--depends xcb-util-cursor --depends libxkbcommon-x11 --depends mesa-libEGL --depends mesa-libGL)
+    extra=(--depends "glibc >= $GLIBC_MIN" --depends xcb-util-cursor --depends libxkbcommon-x11 --depends mesa-libEGL --depends mesa-libGL --depends glib2 --depends fontconfig --depends dbus-libs)
   fi
   fpm -s dir -t "$kind" -n netscan -v "$VERSION" --architecture x86_64 \
       --license MIT --maintainer 'Kirill Shafranov' \
