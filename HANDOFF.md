@@ -8,7 +8,7 @@ Implemented in feat/sidebar-ui: new sidebar UX, strict IPv4 and /24 mask with si
 
 Core scanner: bounded concurrency, priority by subnet, pause/stop, exact N working result limit, per-client proxy routing, Basic only after407, TLS verification, CSV export/recheck. No system networking, DNS, Throne or proxy settings changed. Network verification showed success with current local credentials; do not record values here.
 
-Validation:22 targeted tests pass; source and frozen GUI lifecycle pass. Compatible Linux binary built in Debian12 container (glibc2.36), actual DEB installation/start/removal and AppImage startup being checked before upload. RPM metadata inspected; Fedora GUI launch validated. UI screenshots inspected. No external full subnet sweep. Existing initial GUI may remain open; avoid terminating an active user scan.
+Validation:22 targeted tests pass; source and frozen GUI lifecycle pass. Compatible Linux binary built in Debian12 container (glibc2.36), actual DEB installation/start/removal and AppImage startup passed in Debian12 before upload. RPM metadata inspected; Fedora GUI launch validated. UI screenshots inspected. No external full subnet sweep. Existing initial GUI may remain open; avoid terminating an active user scan.
 
 Packaging: Linux RPM/DEB/AppImage and Windows Setup EXE/portable ZIP. GitHub Actions has tag and manually requested release builds, SHA/version validation, installer smoke checks and idempotent upload. Optional GHCR not required. Actions enabled but GitHub currently exposes zero workflows/runs despite valid files/default develop; exact cause unknown (registration delay is only a hypothesis). Windows executable not yet built or validated. Source workflow validated with actionlint and release-validation tests.
 
