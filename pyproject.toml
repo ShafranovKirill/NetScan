@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "netscan-desktop"
-version = "0.2.0"
+version = "0.2.1"
 description = "Desktop subnet and HTTP proxy availability scanner"
 requires-python = ">=3.11"
 license = "MIT"

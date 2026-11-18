@@ -6,8 +6,8 @@
 
 Готовые RPM, DEB, AppImage, Windows Setup EXE и portable ZIP публикуются в [Releases](https://github.com/ShafranovKirill/NetScan/releases). Первые версии не подписаны цифровой подписью.
 
-- Fedora: `sudo dnf install ./NetScan-0.2.0-x86_64.rpm`
-- Debian/Ubuntu: `sudo apt install ./NetScan-0.2.0-x86_64.deb`
+- Fedora: `sudo dnf install ./NetScan-0.2.1-x86_64.rpm`
+- Debian/Ubuntu: `sudo apt install ./NetScan-0.2.1-x86_64.deb`
 - AppImage: разрешите запуск файла в его свойствах и откройте. При отсутствии FUSE запускайте с `--appimage-extract-and-run`.
 - Windows: откройте Setup EXE; права администратора не требуются. Portable ZIP нужно распаковать целиком.
 
